@@ -1,26 +1,18 @@
 import json
 import re
-import sys
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from loguru import logger
-import numpy as np
 import torch
-from torch import Tensor
-from torchmetrics.functional.multimodal import clip_score
-from functools import partial
 from pathlib import Path
 import typer
 import os
 from PIL import Image
-from torchvision import transforms
-from transformers import CLIPProcessor, AutoTokenizer, BlipImageProcessor
 from rich.progress import Progress
 from sklearn.metrics import precision_recall_fscore_support as prfs
 
 from src.util.extention.rich import no_total_columns, full_columns
 from src.util.device import alloc1
 from . import load_blip2chatglm
-from ..models.bert_clip import BertCLIPModel
 
 
 app = typer.Typer()
@@ -37,17 +29,28 @@ def load_uie_datatset(file: str, img_root: str):
             yield {
                 "image_path": ann["image"],
                 "image": image,
-                "entities": [{"text": text[ent["start"]:ent["end"], "type": ent["type"]]} for ent in ann["entities"]],
+                "text": text,
+                "entities": [{"text": text[ent["start"]:ent["end"]], "type": ent["type"]} for ent in ann["entities"]],
             }
 
 
 def parse_uie(output: str):
     results = []
     while True:
-        m = re.match(r"\s*{\s*(\S+)\s*:\s*(\S+)\s*}\s*", output)
+        m = re.match(r"\s*\(\s*(\S+)\s*:\s*(\S+)\s*\)\s*", output)
         if m is None:
             break
         output = output[m.end():]
+        results.append({"text": m.group(2), "type": m.group(1)})
+    return results
+
+
+def parse_nl(output: str):
+    results = []
+    for line in output.splitlines():
+        m = re.fullmatch(r"\s*([^:：\s]+)\s*[:：]\s*([^:：\s]+)\s*", line.strip())
+        if m is None:
+            break
         results.append({"text": m.group(2), "type": m.group(1)})
     return results
 
@@ -69,7 +72,7 @@ def _convert(
             ]
 
             preds.append(tuple(p_tup))
-        for gt in sample_results["gts"]:
+        for gt in sample_results["label"]:
             gt_tup = [
                 gt["text"],
                 gt["type"] if include_entity_types else pseudo_entity_type
@@ -166,10 +169,10 @@ def _print_results(eval_result: Dict[str, Any]):
 
 
 def _score_stat(results: List[Dict[str, Any]]):
-    t2id = {"None": 0}
+    t2id = {"Entity": 0}
     gt_types = set()
     for sample_results in results:
-        for gt in sample_results["gts"]:
+        for gt in sample_results["label"]:
             t = gt["type"]
             if t not in t2id:
                 t2id[t] = len(t2id)
@@ -180,12 +183,12 @@ def _score_stat(results: List[Dict[str, Any]]):
                 t2id[t] = len(t2id)
 
     gt, pred = _convert(results, include_entity_types=True)
-    ner_score = _score(gt, pred)
+    ner_score = _score(t2id, gt, pred)
 
     gt_wo_type, pred_wo_type = _convert(results, include_entity_types=False)
-    loc_eval_score = _score(gt_wo_type, pred_wo_type)
+    loc_eval_score = _score(t2id, gt_wo_type, pred_wo_type)
 
-    cls_eval_score = _score(gt, pred, cls_metric=True)
+    cls_eval_score = _score(t2id, gt, pred, cls_metric=True)
 
     logger.info("--- NER ---")
     logger.info("")
@@ -210,10 +213,12 @@ def blip2(
     imgpath: str = typer.Option("data/MEPAVE/product_images"),
     output: str = typer.Option(...),
     blip2_path: str = typer.Option(...),
-    lm_path: str = typer.Option("models/chatglm-6b"),
-    prompt: str = typer.Option("这件商品的属性是什么？"),
+    lora_path: Optional[str] = typer.Option(None),
+    prompt: str = typer.Option("以\"类型：属性\"的格式列出图中商品的所有属性："),
+    scheme: str = typer.Option("uie"),
+    caption_field: str = typer.Option(""),
 ):
-    tokenizer, blip2_proc, model = load_blip2chatglm(blip2_path, lm_path)
+    tokenizer, blip2_proc, model = load_blip2chatglm(blip2_path, lora_path)
     device_info = alloc1([])
     device = torch.device(device_info["device"])
     model.to(device)
@@ -225,29 +230,37 @@ def blip2(
     #     model = torch.compile(model)
 
     results = []
-    output: Path = Path(output)
-    output.parent.mkdir(exist_ok=True, parents=True)
-    with torch.no_grad(), Progress(*no_total_columns()) as pbar, output.open(
+    output_path: Path = Path(output)
+    output_path.parent.mkdir(exist_ok=True, parents=True)
+    with torch.no_grad(), Progress(*no_total_columns()) as pbar, output_path.open(
         "w", encoding="utf8"
     ) as wf:
-        tid = pbar.add_task("ClipScore", total=None)
+        tid = pbar.add_task("Eval", total=None)
         for sample in load_uie_datatset(file, imgpath):
             # print(sample["text_input"])
             # print(sample["image"].shape)
             pixel_values = blip2_proc(
                 sample["image"], return_tensors="pt"
             ).pixel_values.to(device)
-            MAX_LENGTH = 256
-            output, _ = model.chat(
-                tokenizer,
-                (prompt, pixel_values),
-                history=[],
-                max_length=MAX_LENGTH,
-            )
-            if len(output) >= MAX_LENGTH:
-                logger.warning(f"output length {len(output)} >= {MAX_LENGTH}: {output}")
-                output = output[:MAX_LENGTH]
-            pred = parse_uie(output)
+            caption = sample.get(caption_field, "")
+
+            with torch.cuda.amp.autocast(enabled=True):
+                for i, output in enumerate(
+                    model.stream_chat(
+                        tokenizer,
+                        query=(prompt + caption, pixel_values),
+                        history=[],
+                        max_length=2048,
+                    )
+                ):
+                    pass
+
+            if scheme == "uie":
+                pred = parse_uie(output)
+            elif scheme == "nl":
+                pred = parse_nl(output)
+            else:
+                raise ValueError(f"Unknown decoding scheme {scheme}")
             result = {
                 "image": sample["image_path"],
                 "label": sample["entities"],
@@ -267,3 +280,7 @@ def score_stat(path: str):
         for line in f:
             results.append(json.loads(line))
     _score_stat(results)
+
+
+if __name__ == "__main__":
+    app()

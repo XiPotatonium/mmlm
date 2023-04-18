@@ -185,13 +185,12 @@ def blip2(
     output: str = typer.Option(...),
     clip_model_path: str = typer.Option("models/clip-vit-bert-chinese-1M"),
     blip2_path: str = typer.Option("models/blip2zh-chatglm-6b"),
-    lm_path: str = typer.Option("models/chatglm-6b"),
     prompt: str = typer.Option(""),
 ):
     clip_model = BertCLIPModel.from_pretrained(clip_model_path)
     CLIPProcessor.tokenizer_class = "BertTokenizerFast"
     clip_proc = CLIPProcessor.from_pretrained(clip_model_path)
-    tokenizer, blip2_proc, model = load_blip2chatglm(blip2_path, lm_path)
+    tokenizer, blip2_proc, model = load_blip2chatglm(blip2_path)
     device_info = alloc1([])
     device = torch.device(device_info["device"])
     clip_model.to(device)

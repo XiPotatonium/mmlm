@@ -1,23 +1,15 @@
-from transformers import Trainer, PreTrainedModel, AutoTokenizer, AutoModel
+from transformers import Trainer, PreTrainedModel, AutoTokenizer, AutoModel, AutoModelForCausalLM
 import torch
 import torch.nn as nn
 from peft import get_peft_model, LoraConfig, TaskType
 from dataclasses import dataclass, field
 import os
-from .modeling_blip2chatglm import Blip2ChatGLMConfig, Blip2ChatGLM, Blip2ForChatGLM
-from .modeling_chatglm import ChatGLMForConditionalGeneration
-from .dataset import (
-    Blip2ChatGLMDataArguments,
-    MEPAVEDataset,
-    mepave_collator,
-)
 from ...util.sym import sym_tbl
 
 
 @dataclass
 class Blip2ChatGLMModelArguments:
     blip2_path: str = field(default="models/blip2zh-chatglm-6b")
-    lm_path: str = field(default="models/chatglm-6b")
     lora_rank: int = field(default=8)
     lora_alpha: int = field(default=32)
     lora_dropout: float = field(default=0.1)
@@ -33,19 +25,21 @@ class Blip2ChatGLMTrainer(Trainer):
     def load_model(cls) -> PreTrainedModel:
         model_args: Blip2ChatGLMModelArguments = sym_tbl().cfg["model"]
 
-        lm = ChatGLMForConditionalGeneration.from_pretrained(
-            model_args.lm_path,
-            # load_in_8bit=True,
-            # device_map="auto",
+        model = AutoModelForCausalLM.from_pretrained(
+            model_args.blip2_path, trust_remote_code=True
         )
-        # lm.gradient_checkpointing_enable()
+        model.setup_dtype(vision_encoder_dtype="fp16", lm_dtype="fp16")
+        lm = model.language_model
+        lm.gradient_checkpointing_enable()
         lm.enable_input_require_grads()
-        # lm.is_parallelizable = True
-        # lm.model_parallel = True
+        lm.is_parallelizable = True
+        lm.model_parallel = True
         lm.lm_head = CastOutputToFloat(lm.lm_head)
         lm.config.use_cache = (
             False  # silence the warnings. Please re-enable for inference!
         )
+        for param in model.parameters():
+            param.requires_grad = False
 
         # setup peft
         # peft_config = LoraConfig(
@@ -71,23 +65,15 @@ class Blip2ChatGLMTrainer(Trainer):
         lm = get_peft_model(lm, peft_config)
         lm.print_trainable_parameters()
 
-        blip2 = Blip2ForChatGLM.from_pretrained(
-            model_args.blip2_path,
-        )
-        for param in blip2.parameters():
-            # Freeze blip2
-            param.requires_grad = False
+        model.language_model = lm
 
-        blip2_config = Blip2ChatGLMConfig.from_pretrained(model_args.blip2_path)
-
-        return Blip2ChatGLM(blip2_config, blip2, lm)
+        return model
 
     def compute_loss(self, model, inputs, return_outputs=False):
         outputs = model(
             input_ids=inputs["input_ids"],
-            context_masks=inputs["context_masks"],
-            input_ids_masks=inputs["input_ids_masks"],
-            images=inputs["images"],
+            pixel_values=inputs["images"],
+            image_slot_offset=inputs["image_slot_offset"],
             labels=inputs["labels"],
             return_dict=True,
         )
@@ -111,7 +97,4 @@ class Blip2ChatGLMTrainer(Trainer):
 __all__ = [
     "Blip2ChatGLMTrainer",
     "Blip2ChatGLMModelArguments",
-    "Blip2ChatGLMDataArguments",
-    "MEPAVEDataset",
-    "mepave_collator",
 ]

@@ -65,7 +65,8 @@ def to_uie(paths: List[str], imgpath: str = typer.Option(...)):
                     "text": text,
                     "entities": entities,
                     "raw_labels": label,
-                    "caption": "".join("{{{}:{}}}".format(ent["type"], text[ent["start"]:ent["end"]]) for ent in entities)
+                    "uie": "".join("({}:{})".format(ent["type"], text[ent["start"]:ent["end"]]) for ent in entities),
+                    "nl": "\n".join("{}:{}".format(ent["type"], text[ent["start"]:ent["end"]]) for ent in entities),
                 }, ensure_ascii=False))
                 wf.write('\n')
     logger.info(f"Get {len(types)} types")

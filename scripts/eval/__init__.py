@@ -1,7 +1,9 @@
 from typing import Optional
 from transformers.utils.constants import OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 from transformers import CLIPProcessor, AutoTokenizer, BlipImageProcessor, AutoModel
-from peft import PeftModel
+from peft import PeftModel, LoraConfig, get_peft_model
+import torch
+import os
 
 
 def load_blip2chatglm(blip2_path: str, lora_path: Optional[str] = None):

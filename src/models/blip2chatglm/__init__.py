@@ -57,9 +57,6 @@ class Blip2ChatGLMTrainer(Trainer):
             lora_dropout=model_args.lora_dropout,
             target_modules=[
                 "query_key_value",
-                "dense",
-                "dense_h_to_4h",
-                "dense_4h_to_h",
             ],
         )
         lm = get_peft_model(lm, peft_config)
@@ -88,10 +85,11 @@ class Blip2ChatGLMTrainer(Trainer):
         os.makedirs(output_dir, exist_ok=True)
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
         # only save lora (requires_grad)
-        saved_params = {
-            k: v.to("cpu") for k, v in self.model.named_parameters() if v.requires_grad
-        }
-        torch.save(saved_params, os.path.join(output_dir, "adapter_model.bin"))
+        # saved_params = {
+        #     k: v.to("cpu") for k, v in self.model.named_parameters() if v.requires_grad
+        # }
+        # torch.save(saved_params, os.path.join(output_dir, "adapter_model.bin"))
+        self.model.language_model.save_pretrained(output_dir)
 
 
 __all__ = [

@@ -6,12 +6,12 @@ import torch
 @dataclass
 class DataArguments:
     dataset: str = field(default="mepave")
-    train_data_path: str = field(default="data/alpaca")
+    train_data_path: str = field(default="")
     dev_data_path: str = field(default="")
-    img_data_path: str = field(default="data/alpaca")
-    img_slot_place: str = field(default="prefix")
-    question: str = field(default="")
-    caption_field: str = field(default="caption")
+    img_data_path: str = field(default="")
+    instruction: str = field(default="")
+    text_field: str = field(default="")
+    caption_field: str = field(default="")
 
 
 def blip2chatglm_collator(features: list) -> dict:

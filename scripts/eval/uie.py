@@ -37,7 +37,7 @@ def load_uie_datatset(file: str, img_root: str):
 def parse_uie(output: str):
     results = []
     while True:
-        m = re.match(r"\s*\(\s*(\S+)\s*:\s*(\S+)\s*\)\s*", output)
+        m = re.match(r"\s*\(\s*([^:：\s]+)\s*[:：]\s*([^:：\s]+)\s*\)\s*", output)
         if m is None:
             break
         output = output[m.end():]
@@ -214,9 +214,10 @@ def blip2(
     output: str = typer.Option(...),
     blip2_path: str = typer.Option(...),
     lora_path: Optional[str] = typer.Option(None),
-    prompt: str = typer.Option("以\"类型：属性\"的格式列出图中商品的所有属性："),
+    prompt: str = typer.Option("以\"属性类型：商品属性\"的格式列出图中商品的所有属性"),
     scheme: str = typer.Option("uie"),
-    caption_field: str = typer.Option(""),
+    text_field: str = typer.Option(""),
+    batch_size: int = 8,
 ):
     tokenizer, blip2_proc, model = load_blip2chatglm(blip2_path, lora_path)
     device_info = alloc1([])
@@ -229,46 +230,58 @@ def blip2(
     #     logger.info("Use torch.compile")
     #     model = torch.compile(model)
 
-    results = []
-    output_path: Path = Path(output)
-    output_path.parent.mkdir(exist_ok=True, parents=True)
-    with torch.no_grad(), Progress(*no_total_columns()) as pbar, output_path.open(
-        "w", encoding="utf8"
-    ) as wf:
-        tid = pbar.add_task("Eval", total=None)
+    def data_loading():
+        messages = []
+        samples = []
         for sample in load_uie_datatset(file, imgpath):
-            # print(sample["text_input"])
-            # print(sample["image"].shape)
             pixel_values = blip2_proc(
                 sample["image"], return_tensors="pt"
             ).pixel_values.to(device)
-            caption = sample.get(caption_field, "")
+            caption = sample.get(text_field, "")
+            messages.append([("指令", prompt, []), ("问", caption, [(pixel_values, 0)])])
+            samples.append(sample)
+            if len(messages) == batch_size:
+                yield {"messages": messages, "samples": samples}
+                messages = []
+                samples = []
+        if len(messages) != 0:
+            yield {"messages": messages, "samples": samples}
 
+    results = []
+    output_path: Path = Path(output)
+    output_path.parent.mkdir(exist_ok=True, parents=True)
+
+    dataset = []
+    with Progress(*no_total_columns()) as pbar:
+        tid = pbar.add_task("Load Data", total=None)
+        for batch in data_loading():
+            dataset.append(batch)
+            pbar.update(tid, advance=len(batch["messages"]))
+
+    with torch.no_grad(), Progress(*full_columns()) as pbar, output_path.open(
+        "w", encoding="utf8"
+    ) as wf:
+        tid = pbar.add_task("Eval", total=len(dataset))
+        for batch in dataset:
             with torch.cuda.amp.autocast(enabled=True):
-                for i, output in enumerate(
-                    model.stream_chat(
-                        tokenizer,
-                        query=(prompt + caption, pixel_values),
-                        history=[],
-                        max_length=2048,
-                    )
-                ):
-                    pass
+                outputs = model.batch_chat(tokenizer, batch_messages=batch["messages"], max_length=512)
 
-            if scheme == "uie":
-                pred = parse_uie(output)
-            elif scheme == "nl":
-                pred = parse_nl(output)
-            else:
-                raise ValueError(f"Unknown decoding scheme {scheme}")
-            result = {
-                "image": sample["image_path"],
-                "label": sample["entities"],
-                "output": output,
-                "pred": pred
-            }
-            results.append(result)
-            wf.write(json.dumps(result, ensure_ascii=False) + "\n")
+            for output, sample, messages in zip(outputs, batch["samples"], batch["messages"]):
+                if scheme == "uie":
+                    pred = parse_uie(output)
+                elif scheme == "nl":
+                    pred = parse_nl(output)
+                else:
+                    raise ValueError(f"Unknown decoding scheme {scheme}")
+                result = {
+                    "image": sample["image_path"],
+                    "label": sample["entities"],
+                    "messages": list(map(lambda x: [x[0], x[1]], messages)),
+                    "output": output,
+                    "pred": pred
+                }
+                results.append(result)
+                wf.write(json.dumps(result, ensure_ascii=False) + "\n")
             pbar.advance(tid)
     _score_stat(results)
 

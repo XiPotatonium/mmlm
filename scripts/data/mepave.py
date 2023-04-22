@@ -24,17 +24,18 @@ def to_uie(paths: List[str], imgpath: str = typer.Option(...)):
     img_dict = set(dir_iter(imgpath))
 
     tag_rule = re.compile(r"</?([^>]+)>")
+
     def labels_mapper(text: str, labels: str) -> List[Dict[str, Any]]:
         open_tags = []
         entities = []
         sent = ""
         last_end = 0
         for match in tag_rule.finditer(labels):
-            sent += labels[last_end:match.start()]
+            sent += labels[last_end : match.start()]
             last_end = match.end()
             if match.group(0).startswith("</"):
                 tag, start_idx = open_tags.pop()
-                assert tag == match.group(1)            # intersection is not allowed
+                assert tag == match.group(1)  # intersection is not allowed
                 entities.append({"start": start_idx, "end": len(sent), "type": tag})
             else:
                 open_tags.append((match.group(1), len(sent)))
@@ -50,25 +51,43 @@ def to_uie(paths: List[str], imgpath: str = typer.Option(...)):
             logger.info(f"Skip {file}")
             continue
         logger.info(f"Processing {file}")
-        with file.open('r', encoding="utf8") as rf, \
-            file.with_name(file.stem + ".uie.jsonl").open('w', encoding="utf8") as wf:
+        with file.open("r", encoding="utf8") as rf, file.with_name(
+            file.stem + ".uie.jsonl"
+        ).open("w", encoding="utf8") as wf:
             for line in rf:
-                img, ident, text, label = line.strip().split('\t')
+                img, ident, text, label = line.strip().split("\t")
                 img = img[2:] + ".jpg"
                 assert img in img_dict
                 entities = labels_mapper(text, label)
                 types.update(entity["type"] for entity in entities)
-                wf.write(json.dumps({
-                    "image": img,
-                    "id": ident,
-                    # "tokens": list(text),     # tokenize in chars
-                    "text": text,
-                    "entities": entities,
-                    "raw_labels": label,
-                    "uie": "".join("({}:{})".format(ent["type"], text[ent["start"]:ent["end"]]) for ent in entities),
-                    "nl": "\n".join("{}:{}".format(ent["type"], text[ent["start"]:ent["end"]]) for ent in entities),
-                }, ensure_ascii=False))
-                wf.write('\n')
+                wf.write(
+                    json.dumps(
+                        {
+                            "image": img,
+                            "id": ident,
+                            # "tokens": list(text),     # tokenize in chars
+                            "text": text,
+                            "entities": entities,
+                            "raw_labels": label,
+                            "uie": "".join(
+                                "({}:{})".format(
+                                    ent["type"], text[ent["start"] : ent["end"]]
+                                )
+                                for ent in entities
+                            ),
+                            "nl": "\n".join(
+                                "{}：{}".format(
+                                    ent["type"], text[ent["start"] : ent["end"]]
+                                )
+                                for ent in entities
+                            )
+                            if len(entities) != 0
+                            else "未找到商品属性",
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                wf.write("\n")
     logger.info(f"Get {len(types)} types")
 
 

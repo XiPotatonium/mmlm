@@ -19,20 +19,20 @@ class MEPAVEIterDataset(ItrDataPipeline):
         self,
         text_path: str,
         img_path: str,
-        question: str,
+        instruction: str,
+        text_field: str,
         caption_field: str,
         img_slot_size: int,
-        img_slot_place: str,
         text_processor: PreTrainedTokenizer,
         img_processor: BlipImageProcessor,
     ) -> None:
         super().__init__(datapipe=[])
         self.text_path = text_path
         self.img_path = img_path
-        self.question = question
+        self.instruction = instruction
+        self.text_field = text_field
         self.caption_field = caption_field
         self.img_slot_size = img_slot_size
-        self.img_slot_place = img_slot_place
         self.tokenizer = text_processor
         self.img_processor = img_processor
 
@@ -48,27 +48,18 @@ class MEPAVEIterDataset(ItrDataPipeline):
 
         image = self.img_processor(image, return_tensors="np").pixel_values
 
-        question = self.question + ann.get("text", "")
-        # question = self.question
-        if self.img_slot_place == "prefix":
-            # The input format is <img><prompt><question><gMask><bos><caption></s>
-            question_ids = [
-                self.tokenizer.unk_token_id
-            ] * self.img_slot_size + self.tokenizer(question, add_special_tokens=False)[
-                "input_ids"
-            ]
-        elif self.img_slot_olace == "suffix":
-            question_ids = (
-                self.tokenizer(question, add_special_tokens=False)["input_ids"]
-                + [self.tokenizer.unk_token_id] * self.img_slot_size
-            )
-        else:
-            raise ValueError(
-                f"img_slot_place must be 'prefix' or 'suffix', got {self.img_slot_place}"
-            )
-        caption_ids = self.tokenizer(ann[self.caption_field], add_special_tokens=False)[
-            "input_ids"
-        ]
+        input = ann.get(self.text_field, "")
+        q1 = f"指令：{self.instruction}\n问："
+        q2 = f"{input}\n答："
+
+        question_ids = (
+            self.tokenizer(q1, add_special_tokens=False).input_ids
+            + [self.tokenizer.unk_token_id] * self.img_slot_size
+            + self.tokenizer(q2, add_special_tokens=False).input_ids
+        )
+        caption_ids = self.tokenizer(
+            ann[self.caption_field], add_special_tokens=False
+        ).input_ids
 
         # make a copy of question_ids. build_inputs_with_special_tokens will modify it
         input_ids = self.tokenizer.build_inputs_with_special_tokens(
@@ -117,10 +108,10 @@ class MEPAVEDataset(LstDataPipeline):
         return cls(
             text_path=text_path,
             img_path=data_args.img_data_path,
-            question=data_args.question,
+            instruction=data_args.instruction,
+            text_field=data_args.text_field,
             caption_field=data_args.caption_field,
             img_slot_size=num_query_tokens,
-            img_slot_place=data_args.img_slot_place,
             text_processor=tokenizer,
             img_processor=image_processor,
         )
@@ -129,10 +120,10 @@ class MEPAVEDataset(LstDataPipeline):
         self,
         text_path: str,
         img_path: str,
-        question: str,
+        instruction: str,
+        text_field: str,
         caption_field: str,
         img_slot_size: int,
-        img_slot_place: str,
         text_processor: PreTrainedTokenizer,
         img_processor: BlipImageProcessor,
     ) -> None:
@@ -141,10 +132,10 @@ class MEPAVEDataset(LstDataPipeline):
                 MEPAVEIterDataset(
                     text_path=text_path,
                     img_path=img_path,
-                    question=question,
+                    instruction=instruction,
+                    text_field=text_field,
                     caption_field=caption_field,
                     img_slot_size=img_slot_size,
-                    img_slot_place=img_slot_place,
                     text_processor=text_processor,
                     img_processor=img_processor,
                 )

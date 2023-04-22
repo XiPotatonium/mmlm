@@ -20,7 +20,6 @@ class CoCoZhVQAIterDataset(ItrDataPipeline):
         text_path: str,
         img_path: str,
         img_slot_size: int,
-        img_slot_place: str,
         text_processor: PreTrainedTokenizer,
         img_processor: BlipImageProcessor,
     ) -> None:
@@ -28,7 +27,6 @@ class CoCoZhVQAIterDataset(ItrDataPipeline):
         self.text_path = text_path
         self.img_path = img_path
         self.img_slot_size = img_slot_size
-        self.img_slot_place = img_slot_place
         self.tokenizer = text_processor
         self.img_processor = img_processor
 
@@ -44,25 +42,12 @@ class CoCoZhVQAIterDataset(ItrDataPipeline):
 
         image = self.img_processor(image, return_tensors="np").pixel_values
 
-        if self.img_slot_place == "prefix":
-            # The input format is <img><question><gMask><bos><caption></s>
-            question_ids = [
-                self.tokenizer.unk_token_id
-            ] * self.img_slot_size + self.tokenizer(
-                ann["question"], add_special_tokens=False
-            )[
-                "input_ids"
-            ]
-        elif self.img_slot_place == "suffix":
-            question_ids = (
-                self.tokenizer(ann["question"], add_special_tokens=False)["input_ids"]
-                + [self.tokenizer.unk_token_id] * self.img_slot_size
-            )
-        else:
-            raise ValueError(f"Invalid img_slot_place: {self.img_slot_place}")
-        caption_ids = self.tokenizer(ann["answer"], add_special_tokens=False)[
-            "input_ids"
-        ]
+        question_ids = [
+            self.tokenizer.unk_token_id
+        ] * self.img_slot_size + self.tokenizer(
+            ann["question"], add_special_tokens=False
+        ).input_ids
+        caption_ids = self.tokenizer(ann["answer"], add_special_tokens=False).input_ids
 
         # make a copy of question_ids. build_inputs_with_special_tokens will modify it
         input_ids = self.tokenizer.build_inputs_with_special_tokens(
@@ -112,7 +97,6 @@ class CoCoZhVQADataset(LstDataPipeline):
             text_path=text_path,
             img_path=data_args.img_data_path,
             img_slot_size=num_query_tokens,
-            img_slot_place=data_args.img_slot_place,
             text_processor=tokenizer,
             img_processor=image_processor,
         )
@@ -122,7 +106,6 @@ class CoCoZhVQADataset(LstDataPipeline):
         text_path: str,
         img_path: str,
         img_slot_size: int,
-        img_slot_place: str,
         text_processor: PreTrainedTokenizer,
         img_processor: BlipImageProcessor,
     ) -> None:
@@ -132,7 +115,6 @@ class CoCoZhVQADataset(LstDataPipeline):
                     text_path=text_path,
                     img_path=img_path,
                     img_slot_size=img_slot_size,
-                    img_slot_place=img_slot_place,
                     text_processor=text_processor,
                     img_processor=img_processor,
                 )

@@ -14,4 +14,4 @@ python train_blip2chatglm.py \
     --remove_unused_columns false \
     --logging_steps 50 \
     --dataloader_num_workers 8 \
-    --output_dir output
+    --output_dir output/vqa

@@ -1,22 +1,25 @@
 python train_blip2chatglm.py \
+    --output_dir output/nl \
     --img_data_path data/MEPAVE/product_images \
     --dataset mepave \
     --train_data_path data/MEPAVE/jdair.jave.train.uie.jsonl \
     --dev_data_path data/MEPAVE/jdair.jave.valid.uie.jsonl \
-    --question 以"类型：属性"的格式列出图中商品的所有属性： \
-    --caption_field uie  \
+    --instruction 以"属性类型：商品属性"的格式列出图中商品的所有属性 \
+    --caption_field nl  \
     --blip2_path models/blip2zh-chatglm-6b \
-    --lora_rank 8 \
-    --per_device_train_batch_size 8 \
+    --lora_rank 4 \
+    --per_device_train_batch_size 32 \
+    --per_device_eval_batch_size 64 \
     --gradient_accumulation_steps 1 \
-    --max_steps 50000 \
-    --save_steps 10000 \
+    --max_steps 10000 \
+    --save_steps 2000 \
     --evaluation_strategy steps \
-    --eval_steps 10000 \
+    --eval_steps 2000 \
     --prediction_loss_only \
     --learning_rate 1e-4 \
     --fp16 \
+    --optim adamw_torch \
     --remove_unused_columns false \
     --logging_steps 50 \
-    --dataloader_num_workers 8 \
-    --output_dir output
+    --log_level info \
+    --dataloader_num_workers 8

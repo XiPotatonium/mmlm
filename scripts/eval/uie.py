@@ -10,8 +10,8 @@ from PIL import Image
 from rich.progress import Progress
 from sklearn.metrics import precision_recall_fscore_support as prfs
 
-from src.util.extention.rich import no_total_columns, full_columns
-from src.util.device import alloc1
+from scripts.lora.util.extention.rich import no_total_columns, full_columns
+from scripts.lora.util.device import alloc1
 from . import load_blip2chatglm
 
 

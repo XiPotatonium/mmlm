@@ -89,7 +89,7 @@ pipes = [
 [model]
 type = "src.models.tagger.Tagger"
 
-plm_path = "models/chinese-roberta-wwm-ext-large"
+plm_path = "models/bert-base-chinese"
 lowercase = false
 
 dropout = 0.1

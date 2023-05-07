@@ -4,7 +4,7 @@ import torch.nn as nn
 from peft import get_peft_model, LoraConfig, TaskType
 from dataclasses import dataclass, field
 import os
-from ...util.sym import sym_tbl
+from alchemy import sym_tbl
 
 
 @dataclass

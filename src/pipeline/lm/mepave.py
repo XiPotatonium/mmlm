@@ -8,17 +8,20 @@ from transformers import AutoTokenizer, BlipImageProcessor, PreTrainedTokenizer
 from transformers.utils.constants import OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 import torch
 from PIL import Image
+from alchemy import sym_tbl
+from alchemy.pipeline import ItrDataPipeline, LstDataPipeline
+from alchemy.pipeline.lst import ItrToLst
 from . import DataArguments
-from ..util.pipeline import ItrDataPipeline, LstDataPipeline
-from ..util.pipeline.lst import ItrToLst
-from ..util.sym import sym_tbl
 
 
-class CoCoZhVQAIterDataset(ItrDataPipeline):
+class MEPAVEIterDataset(ItrDataPipeline):
     def __init__(
         self,
         text_path: str,
         img_path: str,
+        instruction: str,
+        text_field: str,
+        caption_field: str,
         img_slot_size: int,
         text_processor: PreTrainedTokenizer,
         img_processor: BlipImageProcessor,
@@ -26,15 +29,18 @@ class CoCoZhVQAIterDataset(ItrDataPipeline):
         super().__init__(datapipe=[])
         self.text_path = text_path
         self.img_path = img_path
+        self.instruction = instruction
+        self.text_field = text_field
+        self.caption_field = caption_field
         self.img_slot_size = img_slot_size
         self.tokenizer = text_processor
         self.img_processor = img_processor
 
     def __iter__(self):
         with Path(self.text_path).open() as rf:
-            anns = json.load(rf)
-        for ann in anns:
-            yield self.process_item(ann)
+            for line in rf:
+                ann = json.loads(line)
+                yield self.process_item(ann)
 
     def process_item(self, ann: Dict[str, Any]):
         image_path = os.path.join(self.img_path, ann["image"])
@@ -42,12 +48,18 @@ class CoCoZhVQAIterDataset(ItrDataPipeline):
 
         image = self.img_processor(image, return_tensors="np").pixel_values
 
-        question_ids = [
-            self.tokenizer.unk_token_id
-        ] * self.img_slot_size + self.tokenizer(
-            ann["question"], add_special_tokens=False
+        input = ann.get(self.text_field, "")
+        q1 = f"指令：{self.instruction}\n问："
+        q2 = f"{input}\n答："
+
+        question_ids = (
+            self.tokenizer(q1, add_special_tokens=False).input_ids
+            + [self.tokenizer.unk_token_id] * self.img_slot_size
+            + self.tokenizer(q2, add_special_tokens=False).input_ids
+        )
+        caption_ids = self.tokenizer(
+            ann[self.caption_field], add_special_tokens=False
         ).input_ids
-        caption_ids = self.tokenizer(ann["answer"], add_special_tokens=False).input_ids
 
         # make a copy of question_ids. build_inputs_with_special_tokens will modify it
         input_ids = self.tokenizer.build_inputs_with_special_tokens(
@@ -68,7 +80,7 @@ class CoCoZhVQAIterDataset(ItrDataPipeline):
         }
 
 
-class CoCoZhVQADataset(LstDataPipeline):
+class MEPAVEDataset(LstDataPipeline):
     @classmethod
     def load_dataset(
         cls, split: str, image_size: int, num_query_tokens: int
@@ -96,6 +108,9 @@ class CoCoZhVQADataset(LstDataPipeline):
         return cls(
             text_path=text_path,
             img_path=data_args.img_data_path,
+            instruction=data_args.instruction,
+            text_field=data_args.text_field,
+            caption_field=data_args.caption_field,
             img_slot_size=num_query_tokens,
             text_processor=tokenizer,
             img_processor=image_processor,
@@ -105,19 +120,26 @@ class CoCoZhVQADataset(LstDataPipeline):
         self,
         text_path: str,
         img_path: str,
+        instruction: str,
+        text_field: str,
+        caption_field: str,
         img_slot_size: int,
         text_processor: PreTrainedTokenizer,
         img_processor: BlipImageProcessor,
     ) -> None:
         super().__init__(
             datapipe=ItrToLst(
-                CoCoZhVQAIterDataset(
+                datapipe=MEPAVEIterDataset(
                     text_path=text_path,
                     img_path=img_path,
+                    instruction=instruction,
+                    text_field=text_field,
+                    caption_field=caption_field,
                     img_slot_size=img_slot_size,
                     text_processor=text_processor,
                     img_processor=img_processor,
-                )
+                ),
+                is_sized=False,
             )
         )
 

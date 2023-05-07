@@ -14,8 +14,8 @@ from torchvision import transforms
 from transformers import CLIPProcessor, AutoTokenizer, BlipImageProcessor
 from rich.progress import Progress
 
-from scripts.lora.util.extention.rich import no_total_columns, full_columns
-from scripts.lora.util.device import alloc1
+from alchemy.util.extention.rich import no_total_columns, full_columns
+from alchemy.util.device import alloc1
 from . import load_blip2chatglm
 from ..models.bert_clip import BertCLIPModel
 

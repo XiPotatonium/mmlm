@@ -12,9 +12,9 @@ from transformers.integrations import TensorBoardCallback, WandbCallback, Traine
 from torch.utils.tensorboard import SummaryWriter
 from transformers import TrainingArguments
 from transformers import Trainer, HfArgumentParser
-from scripts.lora.util.sym import sym_tbl
-from scripts.lora.models.blip2chatglm import *
-from scripts.lora.datasets import DataArguments, blip2chatglm_collator
+from alchemy import sym_tbl
+from src.models.blip2chatglm import *
+from src.pipeline.lm import DataArguments, blip2chatglm_collator
 
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ def main():
 
     # load dataset
     if data_args.dataset == "mepave":
-        from scripts.lora.datasets.mepave import MEPAVEDataset
+        from src.pipeline.lm.mepave import MEPAVEDataset
 
         train_dataset = MEPAVEDataset.load_dataset(
             "train",
@@ -82,7 +82,7 @@ def main():
             num_query_tokens=model.config.num_query_tokens,
         )
     elif data_args.dataset == "cocozhvqa":
-        from scripts.lora.datasets.vqa import CoCoZhVQADataset
+        from src.pipeline.lm.vqa import CoCoZhVQADataset
 
         train_dataset = CoCoZhVQADataset.load_dataset(
             "train",
